@@ -1,5 +1,7 @@
- import java.util.ArrayList;
- import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Queue;
  
  /*
  *@author Leo K
@@ -8,14 +10,13 @@
  
  public class Schedule {
      public class Job {
-         public int startTime, finishTime;
-         public boolean started, finished;
+         public int startTime, finishTime, initTime;
          public List<Job> incoming, outgoing;
+         public int inDeg;
  
-         private Job(int timeToComplete) {
+         private Job(int initialTime) {
              startTime = 0;
-             this.finishTime = timeToComplete;
-             started = finished = false;
+             initTime = finishTime = initialTime;
              incoming = new ArrayList<>();
              outgoing = new ArrayList<>();
          }
@@ -23,57 +24,34 @@
          public void requires(Job o) {
              incoming.add(o);
              o.outgoing.add(this);
-             // only need to initialize everytime a new job is added; otherwise, start and end times stay the same
-             initSchedule();
-         }
+             needToFinish = true;
+		}
  
          public int start() {
-             if (finished) {
-                 return startTime;
-             }
-             
-             if (incoming.isEmpty()) {
-                 started = true;
-                 finished = true;
-                 return startTime;
-             }
-             
-             started = true;
-             
-             for (Job j: incoming) {
-                 if (j.started && !j.finished || j.start() < 0) return -1;
-                 int diffTime = j.finishTime - startTime;
-                 // determine whether the constraint is larger than current startTime
-                 if (diffTime > 0) {
-                     startTime += diffTime;
-                     finishTime += diffTime;
-                 }
-             }
-             
-             finished = true;
-             
-             return startTime;
+        	 if (needToFinish)
+        		 finish();
+        	 return (inDeg > 0) ? -1 : startTime;
          }
          
-         private void initSchedule() {
-             if (started) {
-                 started = finished = false;
-                 for (Job j: outgoing) {
-                     j.initSchedule();
-                 }
-             }
+         public void relaxJob(Job req) {
+        	 startTime = Math.max(startTime, req.finishTime);
+        	 finishTime = startTime + initTime;
          }
+         
      }
  
-     // Start of GraphImpl
      private List<Job> jobs;
+     private boolean needToFinish;
+     private int lastFinish;
+     
  
      public Schedule() {
          jobs = new ArrayList<>();
+         needToFinish = true;
      }
  
-     public Job insert(int endTime) {
-         Job newJob = new Job(endTime);
+     public Job insert(int initialTime) {
+         Job newJob = new Job(initialTime);
          jobs.add(newJob);
          return newJob;
      }
@@ -83,14 +61,57 @@
      }
  
      public int finish() {
-         int timeToFinish = 0;
+    	 if (!needToFinish) {
+    		 return lastFinish;
+    	 }
+    	 
+    	 // get jobs in top order first
+    	 List<Job> jobsTopSorted = topSort();
+    	 
+    	 // loop through jobs in top order
+    	 for (Job j: jobsTopSorted) {
+    		 lastFinish = Math.max(lastFinish, j.finishTime);
+    		 // loop through outgoing jobs
+    		 for (Job o: j.outgoing) {
+    			 o.relaxJob(j);
+    		 }
+    	 }
+    	 
+    	 if (jobsTopSorted.size() != jobs.size()) {
+    		 lastFinish = -1;
+    	 }
+    	 
+    	 needToFinish = false;
+    	 return lastFinish;
+     }
  
-         // loop through reversed topOrder
-         for (Job j : jobs) {
-             if (j.start() < 0) return -1;
-             timeToFinish = Math.max(timeToFinish, j.finishTime);
+     private List<Job> topSort() {
+    	 initSchedule();
+    	 List<Job> ordered = new ArrayList<>();
+    	 Queue<Job> q = new LinkedList<>();
+    	 
+    	 // add all jobs with no required jobs
+         for (Job j: jobs) {
+        	 if (j.inDeg == 0) 
+        		 q.add(j);
          }
+         
+         // loop through ordered & remove outgoing jobs until next job w/ 0 inDeg is found
+         while (!q.isEmpty()) {
+             Job currJob = q.poll(); // next job in queue
+             for (Job j : currJob.outgoing) {
+                 if (--j.inDeg == 0)
+                     q.add(j);
+             }
+             ordered.add(currJob);
+         }
+
+         return ordered;
+     }
  
-         return timeToFinish;
+     private void initSchedule() {
+         for (Job j : jobs) {
+             j.inDeg = j.incoming.size();
+         }
      }
  }
